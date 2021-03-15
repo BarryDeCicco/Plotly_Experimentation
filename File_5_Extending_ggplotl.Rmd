@@ -1,0 +1,98 @@
+---
+title: "File_5_Extending_ggplotly"
+output:
+  
+  html_document: default
+  word_document: default
+always_allow_html: yes  
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(plotly)
+
+library("ggplot2")
+library("dplyr")
+library("tidyr")
+library("purrr")
+library("tibble")
+library("stringr")
+library("forcats")
+library("readxl")
+library("readr")
+library("lubridate")
+library("psych")
+library("magrittr")
+# library("hms")
+
+library(forecast)
+
+
+```
+
+# 1.2 Extending ggplotly()
+
+
+## 1.2.1 Customizing the layout
+
+### dragmode
+
+```{r dragmode}
+
+p <- ggplot(fortify(gold), aes(x, y)) + geom_line()
+gg <- ggplotly(p)
+layout(gg, dragmode = "pan")
+
+```
+
+### range sliders
+
+```{r rangeslider}
+
+p <- ggplot(fortify(gold), aes(x, y)) + geom_line()
+gg <- ggplotly(p)
+rangeslider(gg)
+
+```
+
+
+## 1.2.2 Modifying layers
+
+As mentioned previously, ggplotly() translates each ggplot2 layer into one or more plotly.js traces. In this translation, it is forced to make a number of assumptions about trace attribute values that may or may not be appropriate for the use case. The style() function is useful in this scenario, as it provides a way to modify trace attribute values in a plotly object. Before using it, you may want to inspect the actual traces in a given plotly object using the plotly_json() function. This function uses the listviewer package to display a convenient interactive view of the JSON object sent to plotly.js (de Jong and Russell 2016). By clicking on the arrow next to the data element, you can see the traces (data) behind the plot. In this case, we have three traces: one for the geom_point() layer and two for the geom_smooth() layer.
+
+```{r run_plot, results="hide"}
+
+p <- ggplot(mtcars, aes(x = wt, y = mpg)) +
+   geom_point() + geom_smooth()
+
+plotly_json(p)
+
+```
+
+Say, for example, we’d like to display information when hovering over points, but not when hovering over the fitted values or error bounds. The ggplot2 API has no semantics for making this distinction, but this is easily done in plotly.js by setting the hoverinfo attribute to "none". Since the fitted values or error bounds are contained in the second and third traces, we can hide the information on just these traces using the traces attribute in the style() function. Generally speaking, the style() function is designed modify attribute values of trace(s) within a plotly object, which is primarily useful for customizing defaults produced via ggplotly().
+
+
+```{r hover_change}
+
+style(p, hoverinfo = "none", traces = 2:3)
+
+```
+
+## 1.2.3 Leveraging statistical output
+
+Since ggplotly() returns a plotly object, and plotly objects can have data attached to them, it attaches data from ggplot2 layer(s) (either before or after summary statistics have been applied). Furthermore, since each ggplot layer owns a data frame, it is useful to have some way to specify the particular layer of data of interest, which is done via the layerData argument in ggplotly(). Also, when a particular layer applies a summary statistic (e.g., geom_bin()), or applies a statistical model (e.g., geom_smooth()) to the data, it might be useful to access the output of that transformation, which is the point of the originalData argument in ggplotly().
+
+```{r summary_statistics}
+
+p <- ggplot(mtcars, aes(x = wt, y = mpg)) +
+   geom_point() + geom_smooth()
+p %>%
+  ggplotly(layerData = 2, originalData = FALSE) %>%
+  plotly_data()
+
+
+```
+
+
+
