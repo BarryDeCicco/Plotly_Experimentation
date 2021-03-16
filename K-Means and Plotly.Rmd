@@ -1,0 +1,226 @@
+---
+title: "K-Means and Plotly"
+author: "Barry DeCicco"
+date: "3/15/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+```
+
+## How does the k-Means algorithm work?
+
+Source file:  https://shirinsplayground.netlify.app/2021/03/kmeans_101/
+
+
+1. Pick a number of clusters, k
+2. Create k random points and call each of these the center of a cluster
+3. For each point in your dataset, find the closest cluster center and assign the point to that cluster
+4. Once each point has been assigned to a cluster, calculate the new center of that cluster
+
+Repeat steps 3 and 4 until you reach a stage when no points need to be reassigned.
+
+Stop. You have found your k clusters and their centers!
+
+If you want to learn more about k-Means, I would recommend this post on Medium, though be aware that the example code is all written in Python. If you are brave and want to go very deep in k-Means theory, take a look at the Wikipedia page. Or, if you would like to see one application of k-Means in R, see this blog’s post about using k-Means to help assist in image classification with Keras. For a detailed illustration of how to implement k-Means in R, along with answers to some common questions, keep reading below.
+
+
+```{r load_libraries, include=FALSE}
+
+library(dplyr)
+library(tidyr)
+library(broom)
+library(purrr)
+library(magrittr)
+library(ggplot2)
+library(plotly)
+
+```
+
+## Functions
+
+Setting up two functions:
+
+```{r function_setup}
+
+# Define two functions for transforming a distribution of values
+#  into the standard normal distribution (bell curve with mean = 0
+#  and standard deviation (sd) = 1). More on this later.
+normalize_values <- function(x, mean, sd) {
+  (x-mean)/sd
+}
+
+unnormalize_values <- function(x, mean, sd) {
+  (x*sd)+mean
+}
+
+set.seed(2021) # So you can reproduce this example
+
+```
+
+## Loading the Data Sets
+
+The data we will use for this example is from one of R’s pre-loaded datasets, quakes. It is a data.frame with 1000 rows and five columns describing earthquakes near Fiji since 1964. The columns are latitude (degrees), longitude (degrees), depth (km), magnitude (Richter scale), and the number of stations reporting the quake. The only pre-processing we will do now is to remove stations and convert this to a tibble.
+
+```{r load_data}
+
+quakes_raw <- quakes %>% 
+  dplyr::select(-stations) %>% 
+  dplyr::as_tibble()
+
+summary(quakes_raw)
+
+```
+
+## Principle 3: Feature scaling  (skipping the first two examples):
+
+k-Means calculates distance to the cluster center using Euclidian distance: the length of a line segment connecting the two points. In two dimensions, this is the Pythagorean Theorem. Aha, you say! I see the problem: we are comparing magnitudes (4.0-6.4) to depth (40-680). Depth has significantly more variation (standard deviation 0.4 for magnitude vs. 215 for depth) and therefore gets overweighted when calculating distance to the mean.
+
+We need to employ feature scaling. As a general rule, if we are comparing unlike units (meters and kilograms) or independent measurements (height in meters and circumference in meters), we should normalize values, but if units are related (petal length and petal width), we should leave them as is.
+
+Unfortunately, many cases require judgment both on whether to scale and how to scale. This is where your expert opinion as a data analyst becomes important. For the purposes of this blog post, we will normalize all of our features, including latitude and longitude, by transforming them to standard normal distributions. The geologists might object to this methodology for normalizing (magnitude is a log scale!!), but please forgive some imprecision for the sake of illustration.
+
+
+```{r normalize_data}
+
+# Create a tibble to store the information we need to normalize
+#  Tibble with row 1 = mean and row 2 = standard deviation
+transformations <- dplyr::tibble(
+  lat   = c(mean(quakes_raw$lat),   sd(quakes_raw$lat)),
+  long  = c(mean(quakes_raw$long),  sd(quakes_raw$long)),
+  depth = c(mean(quakes_raw$depth), sd(quakes_raw$depth)),
+  mag   = c(mean(quakes_raw$mag),   sd(quakes_raw$mag))
+)
+
+# Use the convenient function we wrote earlier
+quakes_normalized <- quakes_raw %>% 
+  dplyr::mutate(
+    lat = normalize_values(
+      lat, transformations$lat[1], transformations$lat[2]
+    ),
+    long = normalize_values(
+      long, transformations$long[1], transformations$long[2]
+    ),
+    depth = normalize_values(
+      depth, transformations$depth[1], transformations$depth[2]
+    ),
+    mag = normalize_values(
+      mag, transformations$mag[1], transformations$mag[2]
+    )
+  )
+
+summary(quakes_normalized)
+```
+## With our fully-preprocessed data, let’s re-run our k-Means analysis, in four dimensions:
+
+```{r k_means}
+
+kclust <- kmeans(quakes_normalized, centers = 4, iter.max = 10, nstart = 5)
+
+str(kclust)
+
+```
+
+
+Print the cluster assignments:
+
+```{r print_clusters}
+
+kclust
+
+```
+
+
+## Denormalize the data and prepare for plotting: 
+
+```{r }
+point_assignments <- broom::augment(kclust, quakes_normalized) %>% 
+  dplyr::mutate(
+    lat = unnormalize_values(
+      lat, transformations$lat[1], transformations$lat[2]
+    ),
+    long = unnormalize_values(
+      long, transformations$long[1], transformations$long[2]
+    ),
+    depth = unnormalize_values(
+      depth, transformations$depth[1], transformations$depth[2]
+    ),
+    mag = unnormalize_values(
+      mag, transformations$mag[1], transformations$mag[2]
+    )
+  )
+
+cluster_info <- broom::tidy(kclust) %>% 
+  dplyr::mutate(
+    lat = unnormalize_values(
+      lat, transformations$lat[1], transformations$lat[2]
+    ),
+    long = unnormalize_values(
+      long, transformations$long[1], transformations$long[2]
+    ),
+    depth = unnormalize_values(
+      depth, transformations$depth[1], transformations$depth[2]
+    ),
+    mag = unnormalize_values(
+      mag, transformations$mag[1], transformations$mag[2]
+    )
+  )
+
+model_stats <- broom::glance(kclust)
+
+head(point_assignments)
+
+```
+
+Print the cluster assignments:
+
+```{r point_assignments}
+
+head(point_assignments)
+
+```
+
+
+
+Model statistics:
+
+```{r model_stats}
+
+model_stats
+
+```
+
+Cluster information:
+
+```{r cluster_info}
+cluster_info
+
+```
+
+
+Plot the data with clusters:
+
+
+```{r plot_clusters}
+
+plotly::plot_ly() %>% 
+  plotly::add_trace(
+    data = point_assignments,
+    x = ~long, y = ~lat, z = ~depth*-1, size = ~mag,
+    color = ~.cluster,
+    type = "scatter3d", mode = "markers",
+    marker = list(symbol = "circle", sizemode = "diameter"),
+    sizes = c(5, 30)
+  ) %>% 
+  plotly::layout(scene = list(
+    xaxis = list(title = "Longitude"),
+    yaxis = list(title = "Latitude"),
+    zaxis = list(title = "Depth")
+  ))
+
+
+```
+
